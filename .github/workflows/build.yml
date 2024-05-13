@@ -16,8 +16,9 @@ jobs:
       - name: Update
         run: |
           #!/bin/bash
+          repo="1f349/vaultwarden-binary"
           latestVersion="$(curl -q --fail 'https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest' | jq -r '.tag_name' -)"
-          if gh release view "$latestVersion"; then
+          if gh release view "$latestVersion" --repo "$repo"; then
             exit 0
           fi
           docker pull --platform linux/amd64 vaultwarden/server:"$latestVersion"
@@ -26,6 +27,6 @@ jobs:
           docker cp "$id":/web-vault web-vault
           docker rm -v "$id"
           tar -cvf vaultwarden.tar.gz vaultwarden web-vault
-          gh release create "v$latestVersion" --repo 1f349/vaultwarden-binary --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion" vaultwarden.tar.gz
+          gh release create "v$latestVersion" --repo "$repo" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion" vaultwarden.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
