@@ -4,6 +4,7 @@ on:
   push:
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,14 +20,21 @@ jobs:
           repo="1f349/vaultwarden-binary"
           latestVersion="$(curl -q --fail 'https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest' | jq -r '.tag_name' -)"
           if gh release view "$latestVersion" --repo "$repo"; then
+            echo "VaultWarden Binary: Version already exists"
             exit 0
           fi
-          docker pull --platform linux/amd64 vaultwarden/server:"$latestVersion"
-          id="$(docker create vaultwarden/server:"$latestVersion")"
-          docker cp "$id":/vaultwarden vaultwarden
-          docker cp "$id":/web-vault web-vault
-          docker rm -v "$id"
-          tar -cvf vaultwarden.tar.gz vaultwarden web-vault
-          gh release create "v$latestVersion" --repo "$repo" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion" vaultwarden.tar.gz
+
+          archArr=(linux/amd64 linux/arm64 linux/arm/v7 linux/arm/v6)
+          for arch in ${archArr[@]}; do
+            arch2="${arch//\//-}"
+            mkdir "$arch2"
+            docker pull --platform "$arch" vaultwarden/server:"$latestVersion"
+            id="$(docker create vaultwarden/server:"$latestVersion")"
+            docker cp "$id":/vaultwarden "$arch2/vaultwarden"
+            docker cp "$id":/web-vault "$arch2/web-vault"
+            docker rm -v "$id"
+            tar -cvf vaultwarden-"$arch2".tar.gz "$arch2/vaultwarden" "$arch2/web-vault"
+          done
+          gh release create "$latestVersion" --repo "$repo" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion" *.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
