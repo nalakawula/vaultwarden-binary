@@ -22,3 +22,5 @@ jobs:
           docker cp "$id":/vaultwarden vaultwarden
           docker cp "$id":/web-vault web-vault
           docker rm -v "$id"
+          tar -cvf vaultwarden.tar.gz vaultwarden web-vault
+          gh release create "v$latestVersion" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion" vaultwarden.tar.gz
