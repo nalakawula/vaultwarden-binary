@@ -1,0 +1,24 @@
+name: Build
+
+on:
+  push:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  update:
+    name: Update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update
+        run: |
+          #!/bin/bash
+          latestVersion="$(curl -q --fail 'https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest' | jq -r '.tag_name' -)"
+          if gh release view "$latestVersion"; then
+            exit 0
+          fi
+          docker pull --platform linux/amd64 vaultwarden/server:"$latestVersion"
+          id="$(docker create vaultwarden/server:"$latestVersion")"
+          docker cp "$id":/vaultwarden vaultwarden
+          docker cp "$id":/web-vault web-vault
+          docker rm -v "$id"
