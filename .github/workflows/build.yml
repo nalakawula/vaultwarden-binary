@@ -34,6 +34,6 @@ jobs:
             docker rm -v "$id"
             tar -cvf vaultwarden-"$arch2".tar.gz "$arch2/vaultwarden" "$arch2/web-vault"
           done
-          gh release create "$latestVersion" --repo "$GITHUB_REPOSITORY" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion)" *.tar.gz
+          gh release create "$latestVersion" --title "$latestVersion" --repo "$GITHUB_REPOSITORY" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion)" *.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
