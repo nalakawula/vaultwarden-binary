@@ -24,7 +24,7 @@ jobs:
           #!/bin/bash
           latestVersion="$(curl -q --fail 'https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest' | jq -r '.tag_name' -)"
           if gh release view "$latestVersion" --repo "$GITHUB_REPOSITORY"; then
-            echo "latestVersion" > log
+            echo "$latestVersion" > log
             exit 0
           fi
 
@@ -40,7 +40,7 @@ jobs:
             tar -cvf vaultwarden-"$arch2".tar.gz "$arch2/vaultwarden" "$arch2/web-vault"
           done
           gh release create "$latestVersion" --title "$latestVersion" --repo "$GITHUB_REPOSITORY" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion)" *.tar.gz
-          echo "latestVersion" > log
+          echo "$latestVersion" > log
         env:
           GH_TOKEN: ${{ github.token }}
           
