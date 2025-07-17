@@ -53,15 +53,13 @@ jobs:
           # Check if there are any changes
           if git diff --quiet; then
             echo "No changes detected"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
           else
             echo "Changes detected"
-            echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
           
       - name: Commit and push changes
         if: steps.changes.outputs.has_changes == 'true'
         run: |
-          git add oisd_big oisd_nsfw
+          git add log
           git commit -m "Vaultwarden new release - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           git push
