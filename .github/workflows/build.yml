@@ -1,7 +1,8 @@
-name: Build
+name: Build and Release Vaultwarden Binaries
 
 on:
   push:
+    branches: [ main ]
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
@@ -11,67 +12,98 @@ permissions:
   pull-requests: write
 
 jobs:
-  update:
-    name: Update
+  check-version:
+    name: Check for New Release
     runs-on: ubuntu-latest
+    outputs:
+      latest_tag: ${{ steps.get-tag.outputs.tag }}
+      should_run: ${{ steps.check.outputs.should_run }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Update
+      - name: Get latest Vaultwarden tag
+        id: get-tag
         run: |
-          #!/bin/bash
-          latestVersion="$(curl -q --fail 'https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest' | jq -r '.tag_name' -)"
-          if gh release view "$latestVersion" --repo "$GITHUB_REPOSITORY"; then
-            echo "$latestVersion" > log
-            exit 0
-          fi
+          TAG=$(curl -s https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest | jq -r '.tag_name')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-          archArr=(linux/amd64 linux/arm64 linux/arm/v7 linux/arm/v6)
-          for arch in ${archArr[@]}; do
-            arch2="${arch//\//-}"
-            mkdir "$arch2"
-            docker pull --platform "$arch" vaultwarden/server:"$latestVersion"
-            id="$(docker create vaultwarden/server:"$latestVersion")"
-            docker cp "$id":/vaultwarden "$arch2/vaultwarden"
-            docker cp "$id":/web-vault "$arch2/web-vault"
-            docker rm -v "$id"
-            tar -cvf vaultwarden-"$arch2".tar.gz "$arch2/vaultwarden" "$arch2/web-vault"
-          done
-          gh release create "$latestVersion" --title "$latestVersion" --repo "$GITHUB_REPOSITORY" --notes "Update to [$latestVersion](https://github.com/dani-garcia/vaultwarden/releases/tag/$latestVersion)" *.tar.gz
-          echo "$latestVersion" > log
+      - name: Check if release exists in THIS repo
+        id: check
+        shell: bash
+        run: |
+          if gh release view "${{ steps.get-tag.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Version ${{ steps.get-tag.outputs.tag }} already exists. Skipping."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version detected: ${{ steps.get-tag.outputs.tag }}"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
-          
-      - name: Check for changes
-        id: changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          
-          # Check if there are any changes
-          if git diff --quiet; then
-            echo "No changes detected"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changes detected"
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: Commit and push changes
-        if: steps.changes.outputs.has_changes == 'true'
-        run: |
-          git add log
-          git commit -m "Vaultwarden new release - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-      - name: Create Pull Request
-        if: steps.changes.outputs.has_changes == 'true'
-        uses: peter-evans/create-pull-request@v7
 
-      # - name: Auto merge
-      #   if: steps.changes.outputs.has_changes == 'true'
-      #   uses: peter-evans/enable-pull-request-automerge@v3
-      #   with:
-      #     pull-request-number: ${{ github.event.pull_request.number }}
-      #     merge-method: squash
+  build:
+    needs: check-version
+    if: needs: check-version.outputs.should_run == 'true'
+    name: Extract ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: "linux/amd64"
+            name: "amd64"
+          - platform: "linux/arm64"
+            name: "arm64"
+          - platform: "linux/arm/v7"
+            name: "armv7"
+          - platform: "linux/arm/v6"
+            name: "armv6"
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Extract Binaries
+        run: |
+          TAG="${{ needs: check-version.outputs.latest_tag }}"
+          docker pull --platform ${{ matrix.platform }} vaultwarden/server:$TAG
+          CONTAINER_ID=$(docker create --platform ${{ matrix.platform }} vaultwarden/server:$TAG)
+          mkdir -p output/web-vault
+          docker cp $CONTAINER_ID:/vaultwarden output/vaultwarden
+          docker cp $CONTAINER_ID:/web-vault output/
+          docker rm $CONTAINER_ID
+          cd output && tar -cvzf ../vaultwarden-${{ matrix.name }}.tar.gz .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.name }}
+          path: vaultwarden-${{ matrix.name }}.tar.gz
+
+  publish:
+    needs: [check-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Create Release and Update Log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs: check-version.outputs.latest_tag }}
+        run: |
+          # Update the local log file for record keeping
+          echo "$TAG" > log.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add log.txt
+          git commit -m "Update log to $TAG" || echo "No changes to commit"
+          git push
+
+          # Create the GitHub Release
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Automated extraction of Vaultwarden [$TAG](https://github.com/dani-garcia/vaultwarden/releases/tag/$TAG)" \
+            artifacts/*.tar.gz
