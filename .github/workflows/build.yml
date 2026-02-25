@@ -26,23 +26,25 @@ jobs:
       - name: Get latest Vaultwarden tag
         id: get-tag
         run: |
-          TAG=$(curl -s https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest | jq -r '.tag_name')
+          # Use -s for silent and --fail to catch 404s
+          TAG=$(curl -sfL https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest | jq -r '.tag_name')
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Check if release exists in THIS repo
+      - name: Check if release exists
         id: check
         shell: bash
-        run: |
-          if gh release view "${{ steps.get-tag.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Version ${{ steps.get-tag.outputs.tag }} already exists. Skipping."
-            echo "should_run=false" >> $GITHUB_OUTPUT
-          else
-            echo "New version detected: ${{ steps.get-tag.outputs.tag }}"
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          fi
         env:
           GH_TOKEN: ${{ github.token }}
-
+          TAG: ${{ steps.get-tag.outputs.tag }}
+        run: |
+          # We check if the tag exists. If gh succeeds, release exists.
+          if gh release view "$TAG" --repo ${{ github.repository }} > /dev/null 2>&1; then
+            echo "Version $TAG found. Skipping build."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "Version $TAG not found. Proceeding with build."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
   build:
     needs: check-version
     if: needs.check-version.outputs.should_run == 'true'
