@@ -7,6 +7,11 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+# Prevents multiple runs from colliding
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pull-requests: write
@@ -29,6 +34,7 @@ jobs:
         id: check
         shell: bash
         run: |
+          # Check if the tag already exists as a release in your repo
           if gh release view "${{ steps.get-tag.outputs.tag }}" >/dev/null 2>&1; then
             echo "Version ${{ steps.get-tag.outputs.tag }} already exists. Skipping."
             echo "should_run=false" >> $GITHUB_OUTPUT
@@ -41,8 +47,9 @@ jobs:
 
   build:
     needs: check-version
-    if: needs: check-version.outputs.should_run == 'true'
-    name: Extract ${{ matrix.arch }}
+    # FIXED SYNTAX BELOW
+    if: needs.check-version.outputs.should_run == 'true'
+    name: Extract ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -61,12 +68,12 @@ jobs:
 
       - name: Extract Binaries
         run: |
-          TAG="${{ needs: check-version.outputs.latest_tag }}"
+          TAG="${{ needs.check-version.outputs.latest_tag }}"
           docker pull --platform ${{ matrix.platform }} vaultwarden/server:$TAG
           CONTAINER_ID=$(docker create --platform ${{ matrix.platform }} vaultwarden/server:$TAG)
-          mkdir -p output/web-vault
+          mkdir -p output
           docker cp $CONTAINER_ID:/vaultwarden output/vaultwarden
-          docker cp $CONTAINER_ID:/web-vault output/
+          docker cp $CONTAINER_ID:/web-vault output/web-vault
           docker rm $CONTAINER_ID
           cd output && tar -cvzf ../vaultwarden-${{ matrix.name }}.tar.gz .
 
@@ -94,16 +101,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs: check-version.outputs.latest_tag }}
         run: |
-          # Update the local log file for record keeping
-          echo "$TAG" > log.txt
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add log.txt
-          git commit -m "Update log to $TAG" || echo "No changes to commit"
+          echo "$TAG" > log
+          git add log
+          git commit -m "chore: update log to $TAG" || echo "No changes to commit"
           git push
 
-          # Create the GitHub Release
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "Automated extraction of Vaultwarden [$TAG](https://github.com/dani-garcia/vaultwarden/releases/tag/$TAG)" \
+            --notes "Update to Vaultwarden [$TAG](https://github.com/dani-garcia/vaultwarden/releases/tag/$TAG)" \
             artifacts/*.tar.gz
