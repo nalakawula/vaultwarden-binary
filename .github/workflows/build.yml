@@ -7,7 +7,6 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
-# Prevents multiple runs from colliding
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -34,7 +33,6 @@ jobs:
         id: check
         shell: bash
         run: |
-          # Check if the tag already exists as a release in your repo
           if gh release view "${{ steps.get-tag.outputs.tag }}" >/dev/null 2>&1; then
             echo "Version ${{ steps.get-tag.outputs.tag }} already exists. Skipping."
             echo "should_run=false" >> $GITHUB_OUTPUT
@@ -47,7 +45,6 @@ jobs:
 
   build:
     needs: check-version
-    # FIXED SYNTAX BELOW
     if: needs.check-version.outputs.should_run == 'true'
     name: Extract ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -82,9 +79,11 @@ jobs:
         with:
           name: binary-${{ matrix.name }}
           path: vaultwarden-${{ matrix.name }}.tar.gz
+          retention-days: 1
 
   publish:
     needs: [check-version, build]
+    if: needs.check-version.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +98,7 @@ jobs:
       - name: Create Release and Update Log
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs: check-version.outputs.latest_tag }}
+          TAG: ${{ needs.check-version.outputs.latest_tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
